@@ -1,0 +1,11 @@
+/*
+!/.gitignore
+!/README.md
+!/main.py
+!/config.yaml
+!/requirements.txt
+!/src/
+!/notebooks/
+__pycache__/
+*.pyc
+.ipynb_checkpoints/

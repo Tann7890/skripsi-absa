@@ -1,0 +1,81 @@
+kecamatan: [Blimbing, Kedungkandang, Klojen, Lowokwaru, Sukun]
+jenis: [coffee shop, kedai kopi, cafe]
+min_ulasan_total: 300
+jeda_aksi: [2, 4]
+jeda_toko: [10, 20]
+maks_gulir_pencarian: 40
+maks_gulir_ulasan: 1500
+batas_gulir_macet: 6
+maks_putaran_lainnya: 100
+uji_coba_n: 2
+ambang_proporsi: 0.10
+min_ulasan_id: 139
+versi_kata_kunci: kuat
+ukuran_uji_coba: 30
+jumlah_anotator: 3
+ambang_kappa: 0.60
+target_data_latih: 1500
+model:
+  checkpoint: indobenchmark/indobert-base-p1
+  max_len: 128
+  learning_rate: [2.0e-5, 3.0e-5, 5.0e-5]
+  batch_size: [16, 32]
+  epoch: [2, 3, 4]
+  seed: [42, 7, 2024]
+  jumlah_terbaik: 3
+kata_kunci:
+  kuat: [nugas, ngerjain tugas, tugas, belajar, skripsi, kuliah, dosen, wfc, wfa, wfh, laptop, laptopan, kerja, bekerja, kerjain]
+  lemah: [wifi, wi-fi, meja, betah, lama, colokan, stopkontak, stop kontak]
+penanda_jawa: [ora, iki, iku, kuwi, kae, opo, piye, wis, wes, durung, arep, kudu, iso, isa, ngene, ngono, nang, neng, karo, ae, wae, lek, rek, cak, sak, dulur, lur, sampeyan, koen, kon, uenak, enake, regane, panggone, mangan, ngombe, apik, larang, akeh, sitik, suwe, mboten, nggih, sanget, kalih, sae, matur nuwun, monggo, wonten, sampun, dereng, badhe, kula, panjenengan, ngunjuk, dahar, kane, ojir, nawak, ayas, umak, tahes, kodew, sinau, nggarap, nggawe, gawe, mlaku, tekan, teko, mrene, mrono, maneh, meneh, tenan, ojok, mek, tok, kene]
+pemisah_kalimat: [tapi, tetapi, namun, sayangnya, tp, tpi]
+kamus_tambahan:
+  ndak: tidak
+  dah: sudah
+  k: ke
+  in: in
+  to: to
+  si: si
+  s: s
+  fi: fi
+  ngapain: ngapain
+  it: it
+  enakk: enak
+  ramahh: ramah
+  nugass: nugas
+  nyamann: nyaman
+  okee: oke
+  murahh: murah
+  tempatnyaa: tempatnya
+  rekomen: rekomendasi
+  recomended: recommended
+  rekomended: recommended
+  makananya: makanannya
+  pelayananya: pelayanannya
+  terimakasih: terima kasih
+  kesana: ke sana
+  dikantong: di kantong
+  nyantai: santai
+  kerasa: terasa
+  lemot: lambat
+  murce: murah
+  pw: nyaman
+  jos: mantap
+  josjis: mantap
+  coffe: coffee
+  wort: worth
+  whort: worth
+selector:
+  feed: 'div[role="feed"]'
+  hasil: 'a.hfpxzc'
+  nama: 'h1'
+  alamat: 'button[data-item-id="address"]'
+  jumlah_ulasan: 'div.F7nice span[aria-label*="ulasan"]'
+  tab_ulasan: 'button[role="tab"][aria-label*="Ulasan"]'
+  urutkan: 'button[aria-label*="Urutkan"]'
+  menu_urut: 'div[role="menuitemradio"]'
+  panel: 'div.m6QErb.DxyBCb'
+  ulasan: 'div[data-review-id]'
+  lainnya: 'button.w8nwRe'
+  teks: 'span.wiI7pd'
+  bintang: 'span.kvMYJc'
+  waktu: 'span.rsqaWe'
