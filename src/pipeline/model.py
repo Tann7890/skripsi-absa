@@ -11,27 +11,37 @@ from statistics import mean
 
 from pipeline.config import (
     CONFIG_PATH,
+    DATA_ACUAN_FINAL,
+    DATA_LATIH_ASPEK,
     EVAL_SMSA_CONFUSION,
     EVAL_SMSA_METRIK,
     EVAL_SMSA_PREDIKSI,
+    KALIMAT_BERSIH,
     KAMUS_NORMALISASI,
+    KANDIDAT_ASPEK_DIR,
     KANDIDAT_SENTIMEN_DIR,
     KOLOM_METRIK,
+    KOLOM_PREDIKSI_ACUAN,
     KOLOM_PREDIKSI_SMSA,
     KOLOM_RUNS,
     LABEL_SMSA,
+    MODEL_ASPEK_TERKUNCI,
     MODEL_SENTIMEN_TERKUNCI,
+    PILIHAN_ASPEK,
     PILIHAN_SENTIMEN,
     RUNS,
     SMSA_LATIH,
     SMSA_UJI,
     SMSA_VALIDASI,
+    path_evaluasi_acuan,
 )
+from pipeline.data_acuan import cek_tidak_bocor
 from pipeline.logbook import catat
 from pipeline.preprocessing import baca_kamus, bersihkan, normalisasi
 from pipeline.storage import baca_csv, sidik_jari, tambah_baris_csv, tulis_csv
 
-NAMA_MODEL = "sentimen"
+NAMA_SENTIMEN = "sentimen"
+NAMA_ASPEK = "aspek"
 
 
 def baca_smsa(path: Path) -> list[dict]:
@@ -151,13 +161,13 @@ def perlu_simpan(f1: float, f1_terbaik: float) -> bool:
     return round(f1, 4) > f1_terbaik
 
 
-def cek_penanda_kandidat(penanda: dict | None, final: dict) -> None:
+def cek_penanda_kandidat(penanda: dict | None, final: dict, folder: Path) -> None:
     kunci = kunci_konfigurasi(final)
     if penanda is not None and penanda["seed"] == final["seed"] and penanda["f1_macro_validasi"] == round(final["f1"], 4):
         return
     ada = "tidak ada" if penanda is None else f"seed {penanda['seed']}, f1 {penanda['f1_macro_validasi']}"
     raise ValueError(
-        f"{KANDIDAT_SENTIMEN_DIR / kunci} tidak sesuai runs.csv (run.json {ada}; runs.csv seed {final['seed']}, "
+        f"{folder / kunci} tidak sesuai runs.csv (run.json {ada}; runs.csv seed {final['seed']}, "
         f"f1 {round(final['f1'], 4)}); hapus folder ini dan baris fase 2 konfigurasi {kunci} di runs.csv, lalu jalankan lagi"
     )
 
@@ -303,12 +313,20 @@ def _versi_gpu() -> tuple[str, str]:
     return torch.__version__, transformers.__version__
 
 
-def _tulis_kunci(final: dict, cfg: dict, seeds: list[int]) -> None:
+def _tulis_kunci(
+    final: dict,
+    cfg: dict,
+    seeds: list[int],
+    nama: str,
+    folder: Path,
+    sumber: tuple[Path, ...],
+    preprocessing: str,
+) -> None:
     cfg_model = cfg["model"]
     torch_version, transformers_version = _versi_gpu()
     # sidik jari berkas model dan sumber dicatat supaya bisa dicek ulang
     kunci = {
-        "model": NAMA_MODEL,
+        "model": nama,
         "checkpoint": cfg_model["checkpoint"],
         "konfigurasi": {"learning_rate": final["learning_rate"], "batch_size": final["batch_size"], "epoch": final["epoch"]},
         "seed": final["seed"],
@@ -319,12 +337,12 @@ def _tulis_kunci(final: dict, cfg: dict, seeds: list[int]) -> None:
         "python": sys.version.split()[0],
         "torch": torch_version,
         "transformers": transformers_version,
-        "sha256": {p.name: sidik_jari(p) for p in sorted(MODEL_SENTIMEN_TERKUNCI.iterdir()) if p.is_file() and p.name != "kunci.json"},
-        "sha256_sumber": {p.name: sidik_jari(p) for p in (SMSA_LATIH, SMSA_VALIDASI, KAMUS_NORMALISASI)},
-        "preprocessing": "bersihkan + normalisasi (sama dengan kalimat ulasan)",
+        "sha256": {p.name: sidik_jari(p) for p in sorted(folder.iterdir()) if p.is_file() and p.name != "kunci.json"},
+        "sha256_sumber": {p.name: sidik_jari(p) for p in sumber},
+        "preprocessing": preprocessing,
         "kamus_tambahan": len(cfg["kamus_tambahan"]),
     }
-    (MODEL_SENTIMEN_TERKUNCI / "kunci.json").write_text(json.dumps(kunci, indent=2, ensure_ascii=True), encoding="utf-8")
+    (folder / "kunci.json").write_text(json.dumps(kunci, indent=2, ensure_ascii=True), encoding="utf-8")
 
 
 def jalankan_finetune_sentimen(cfg: dict) -> None:
@@ -341,7 +359,34 @@ def jalankan_finetune_sentimen(cfg: dict) -> None:
     label_latih = [r["label"] for r in latih]
     teks_val = [siapkan_teks(r["teks"], kamus) for r in val]
     label_val = [r["label"] for r in val]
-    kelas = PILIHAN_SENTIMEN
+    _finetune(
+        cfg,
+        NAMA_SENTIMEN,
+        teks_latih,
+        label_latih,
+        teks_val,
+        label_val,
+        PILIHAN_SENTIMEN,
+        KANDIDAT_SENTIMEN_DIR,
+        MODEL_SENTIMEN_TERKUNCI,
+        (SMSA_LATIH, SMSA_VALIDASI, KAMUS_NORMALISASI),
+        "bersihkan + normalisasi (sama dengan kalimat ulasan)",
+    )
+
+
+def _finetune(
+    cfg: dict,
+    nama: str,
+    teks_latih: list[str],
+    label_latih: list[str],
+    teks_val: list[str],
+    label_val: list[str],
+    kelas: tuple[str, ...],
+    kandidat_dir: Path,
+    terkunci_dir: Path,
+    sumber: tuple[Path, ...],
+    preprocessing: str,
+) -> None:
     cfg_model = cfg["model"]
     seeds = cfg_model["seed"]
     # fase 1 hanya memakai seed pertama, seed lain untuk fase 2
@@ -349,34 +394,34 @@ def jalankan_finetune_sentimen(cfg: dict) -> None:
 
     dijalankan = 0
     for k in daftar_kombinasi(cfg_model):
-        if sudah_dijalankan(_baca_runs(), NAMA_MODEL, "1", k, seed_awal):
+        if sudah_dijalankan(_baca_runs(), nama, "1", k, seed_awal):
             continue
         print(f"[fase 1] {kunci_konfigurasi(k)} seed {seed_awal}")
         hasil = latih_dan_evaluasi(teks_latih, label_latih, teks_val, label_val, kelas, k, seed_awal, cfg_model)
-        _simpan_run(NAMA_MODEL, "1", k, seed_awal, hasil)
+        _simpan_run(nama, "1", k, seed_awal, hasil)
         dijalankan += 1
 
     # fase 2 hanya untuk kandidat terbaik fase 1
-    kandidat = pilih_terbaik(_baca_runs(), NAMA_MODEL, cfg_model["jumlah_terbaik"])
+    kandidat = pilih_terbaik(_baca_runs(), nama, cfg_model["jumlah_terbaik"])
     if dijalankan:
         catat(
-            "finetune_sentimen",
+            f"finetune_{nama}",
             f"fase 1 selesai: {len(daftar_kombinasi(cfg_model))} kombinasi dengan seed {seed_awal}; "
             f"{cfg_model['jumlah_terbaik']} terbaik: " + ", ".join(kunci_konfigurasi(k) for k in kandidat),
-            len(latih),
-            len(val),
+            len(teks_latih),
+            len(teks_val),
             RUNS,
         )
 
     for k in kandidat:
         for seed in seeds:
             runs = _baca_runs()
-            if sudah_dijalankan(runs, NAMA_MODEL, "2", k, seed):
+            if sudah_dijalankan(runs, nama, "2", k, seed):
                 continue
             # f1 terbaik sejauh ini jadi ambang simpan bobot
-            _, f1_terbaik = seed_terbaik(runs, NAMA_MODEL, k)
+            _, f1_terbaik = seed_terbaik(runs, nama, k)
             print(f"[fase 2] {kunci_konfigurasi(k)} seed {seed}")
-            folder = KANDIDAT_SENTIMEN_DIR / kunci_konfigurasi(k)
+            folder = kandidat_dir / kunci_konfigurasi(k)
             hasil = latih_dan_evaluasi(
                 teks_latih,
                 label_latih,
@@ -390,26 +435,58 @@ def jalankan_finetune_sentimen(cfg: dict) -> None:
             )
             if perlu_simpan(hasil["f1_macro"], f1_terbaik):
                 _tulis_penanda(folder, seed, hasil["f1_macro"])
-            _simpan_run(NAMA_MODEL, "2", k, seed, hasil)
+            _simpan_run(nama, "2", k, seed, hasil)
 
-    final = pilih_final(_baca_runs(), NAMA_MODEL, kandidat, seeds)
-    sumber = KANDIDAT_SENTIMEN_DIR / kunci_konfigurasi(final)
-    if not sumber.exists():
-        raise FileNotFoundError(f"{sumber} tidak ada; hapus baris fase 2 konfigurasi ini dari runs.csv lalu jalankan lagi")
-    cek_penanda_kandidat(_baca_penanda(sumber), final)
-    shutil.copytree(sumber, MODEL_SENTIMEN_TERKUNCI)
-    shutil.copy2(CONFIG_PATH, MODEL_SENTIMEN_TERKUNCI / "config_snapshot.yaml")
-    _tulis_kunci(final, cfg, seeds)
+    final = pilih_final(_baca_runs(), nama, kandidat, seeds)
+    folder_final = kandidat_dir / kunci_konfigurasi(final)
+    if not folder_final.exists():
+        raise FileNotFoundError(f"{folder_final} tidak ada; hapus baris fase 2 konfigurasi ini dari runs.csv lalu jalankan lagi")
+    cek_penanda_kandidat(_baca_penanda(folder_final), final, kandidat_dir)
+    shutil.copytree(folder_final, terkunci_dir)
+    shutil.copy2(CONFIG_PATH, terkunci_dir / "config_snapshot.yaml")
+    _tulis_kunci(final, cfg, seeds, nama, terkunci_dir, sumber, preprocessing)
     # folder kandidat tidak perlu lagi setelah model terkunci
-    shutil.rmtree(KANDIDAT_SENTIMEN_DIR)
+    shutil.rmtree(kandidat_dir)
     bobot = [round(b, 4) for b in bobot_kelas(label_latih, kelas)]
     catat(
-        "finetune_sentimen",
-        f"model sentimen dikunci: {kunci_konfigurasi(final)} seed {final['seed']}, F1 macro validasi {final['f1']:.4f} "
-        f"(rata-rata {len(seeds)} seed {final['rata_f1']:.4f}); bobot kelas {bobot}; disimpan di {MODEL_SENTIMEN_TERKUNCI}",
-        len(latih),
-        len(val),
-        MODEL_SENTIMEN_TERKUNCI,
+        f"finetune_{nama}",
+        f"model {nama} dikunci: {kunci_konfigurasi(final)} seed {final['seed']}, F1 macro validasi {final['f1']:.4f} "
+        f"(rata-rata {len(seeds)} seed {final['rata_f1']:.4f}); bobot kelas {bobot}; disimpan di {terkunci_dir}",
+        len(teks_latih),
+        len(teks_val),
+        terkunci_dir,
+    )
+
+
+def jalankan_finetune_aspek(cfg: dict) -> None:
+    if MODEL_ASPEK_TERKUNCI.exists():
+        raise FileExistsError(f"{MODEL_ASPEK_TERKUNCI} sudah dikunci; model tidak dilatih ulang")
+    if not DATA_LATIH_ASPEK.exists():
+        raise FileNotFoundError(f"{DATA_LATIH_ASPEK} belum ada; jalankan data_latih dulu")
+
+    baris = baca_csv(DATA_LATIH_ASPEK)
+    # label atau porsi salah bisa merusak model, dicek dulu
+    for r in baris:
+        if r["label_aspek"] not in PILIHAN_ASPEK or r["porsi"] not in ("latih", "validasi"):
+            raise ValueError(f"{DATA_LATIH_ASPEK} id_kalimat {r['id_kalimat']}: label_aspek atau porsi tidak valid")
+    latih = [r for r in baris if r["porsi"] == "latih"]
+    val = [r for r in baris if r["porsi"] == "validasi"]
+    if not latih or not val:
+        raise ValueError(f"{DATA_LATIH_ASPEK} harus punya data porsi latih dan validasi")
+    # kalimat acuan tidak boleh ikut masuk data latih
+    cek_tidak_bocor([r["id_kalimat"] for r in baris])
+    _finetune(
+        cfg,
+        NAMA_ASPEK,
+        [r["teks_model"] for r in latih],
+        [r["label_aspek"] for r in latih],
+        [r["teks_model"] for r in val],
+        [r["label_aspek"] for r in val],
+        PILIHAN_ASPEK,
+        KANDIDAT_ASPEK_DIR,
+        MODEL_ASPEK_TERKUNCI,
+        (DATA_LATIH_ASPEK,),
+        "teks_model dari kalimat_bersih.csv (bersihkan + normalisasi)",
     )
 
 
@@ -533,3 +610,79 @@ def jalankan_evaluasi_sentimen_smsa(cfg: dict) -> None:
         sum(b == p for b, p in zip(benar, pred)),
         EVAL_SMSA_METRIK,
     )
+
+
+def jalankan_evaluasi(cfg: dict) -> None:
+    keluaran = [path_evaluasi_acuan(nama, jenis) for nama in (NAMA_ASPEK, NAMA_SENTIMEN) for jenis in ("metrik", "confusion", "prediksi")]
+    for p in keluaran:
+        if p.exists():
+            raise FileExistsError(f"{p} sudah ada; evaluasi data acuan hanya sekali, pindahkan ke arsip dulu bila evaluasi ulang sesuai FR-55")
+    for p, pesan in (
+        (MODEL_ASPEK_TERKUNCI, "jalankan finetune_aspek dulu"),
+        (MODEL_SENTIMEN_TERKUNCI, "jalankan finetune_sentimen dulu"),
+        (DATA_ACUAN_FINAL, "jalankan label_akhir dulu"),
+        (KALIMAT_BERSIH, "jalankan preprocessing dulu"),
+    ):
+        if not p.exists():
+            raise FileNotFoundError(f"{p} belum ada; {pesan}")
+
+    # sidik dicek sebelum prediksi, model yang berubah tidak boleh dievaluasi
+    kunci = {NAMA_ASPEK: cek_sidik_model(MODEL_ASPEK_TERKUNCI), NAMA_SENTIMEN: cek_sidik_model(MODEL_SENTIMEN_TERKUNCI)}
+    cek_tidak_bocor([])
+    acuan = baca_csv(DATA_ACUAN_FINAL)
+    kalimat = {r["id_kalimat"]: r for r in baca_csv(KALIMAT_BERSIH)}
+    hilang = [r["id_kalimat"] for r in acuan if r["id_kalimat"] not in kalimat]
+    if hilang:
+        raise ValueError(f"{len(hilang)} id_kalimat data acuan tidak ada di kalimat_bersih.csv, misalnya {hilang[0]}")
+    ids = [r["id_kalimat"] for r in acuan]
+    teks_kalimat = [kalimat[i]["kalimat"] for i in ids]
+    teks_model = [kalimat[i]["teks_model"] for i in ids]
+
+    # kedua model diprediksi dulu sebelum ada yang ditulis
+    hasil = {}
+    for nama, folder, kelas, kolom_label in (
+        (NAMA_ASPEK, MODEL_ASPEK_TERKUNCI, PILIHAN_ASPEK, "label_aspek"),
+        (NAMA_SENTIMEN, MODEL_SENTIMEN_TERKUNCI, PILIHAN_SENTIMEN, "label_sentimen"),
+    ):
+        benar = [r[kolom_label] for r in acuan]
+        pred = [h["label"] for h in prediksi(teks_model, folder, cfg["model"]["max_len"])]
+        metrik = hitung_metrik(benar, pred, kelas)
+        baris_cm, kolom_cm = baris_confusion(metrik, kelas)
+        hasil[nama] = {
+            "kelas": kelas,
+            "metrik": metrik,
+            "baris_metrik": baris_metrik(metrik, kelas),
+            "baris_cm": baris_cm,
+            "kolom_cm": kolom_cm,
+            "prediksi": [
+                {"id_kalimat": i, "kalimat": k, "teks_model": t, "label_benar": b, "label_prediksi": p, "benar": b == p}
+                for i, k, t, b, p in zip(ids, teks_kalimat, teks_model, benar, pred)
+            ],
+        }
+
+    for nama, h in hasil.items():
+        tulis_csv(path_evaluasi_acuan(nama, "metrik"), h["baris_metrik"], KOLOM_METRIK)
+        tulis_csv(path_evaluasi_acuan(nama, "confusion"), h["baris_cm"], h["kolom_cm"])
+        tulis_csv(path_evaluasi_acuan(nama, "prediksi"), h["prediksi"], KOLOM_PREDIKSI_ACUAN)
+
+    ambang = cfg["ambang_f1"]
+    for nama, h in hasil.items():
+        for baris in h["baris_metrik"]:
+            print("\t".join(str(baris[k]) for k in KOLOM_METRIK))
+        for baris in h["baris_cm"]:
+            print("\t".join(str(baris[k]) for k in h["kolom_cm"]))
+        metrik = h["metrik"]
+        f1 = metrik["f1_macro"]
+        lolos = f1 >= ambang
+        print(f"{nama}: F1 macro {f1:.4f} -> {'LOLOS' if lolos else 'TIDAK LOLOS'} ambang {ambang}")
+        kunci_model = kunci[nama]
+        catat(
+            "evaluasi",
+            f"model {nama} terkunci ({kunci_konfigurasi(kunci_model['konfigurasi'])}, seed {kunci_model['seed']}) pada data acuan {len(acuan)} kalimat (FR-53): "
+            f"F1 macro {f1:.4f}, akurasi {metrik['akurasi']:.4f}; {'lolos' if lolos else 'tidak lolos'} ambang F1 {ambang} (FR-55); F1 per kelas "
+            + ", ".join(f"{c} {metrik['per_kelas'][c]['f1']:.4f}" for c in h["kelas"])
+            + ("" if lolos else "; peneliti memutuskan rencana cadangan"),
+            len(acuan),
+            sum(r["benar"] for r in h["prediksi"]),
+            path_evaluasi_acuan(nama, "metrik"),
+        )

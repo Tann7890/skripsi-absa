@@ -39,13 +39,16 @@ Semua parameter ada di `config.yaml`. Urutan perintah:
 .venv\Scripts\python main.py lembar_anotasi --set peneliti
 .venv\Scripts\python main.py kappa --set acuan
 .venv\Scripts\python main.py label_akhir
+.venv\Scripts\python main.py validasi_peneliti
 .venv\Scripts\python main.py sampel_latih
 .venv\Scripts\python main.py ulang_50
 .venv\Scripts\python main.py data_latih
 ```
 
+Lalu di GPU (lihat bagian berikut): `finetune_sentimen`, `evaluasi_sentimen_smsa`, `finetune_aspek`, `evaluasi`.
+
 `.venv\Scripts\python main.py <perintah> --help` menampilkan penjelasan tiap perintah.
 
 ## Fine-tuning (GPU)
 
-`finetune_sentimen` dan `evaluasi_sentimen_smsa` butuh GPU dan pustaka `torch` serta `transformers` (diuji dengan torch 2.11.0 dan transformers 5.20.2). Jalankan lewat `notebooks/indobert_gpu.ipynb` di Google Colab dengan folder proyek di Google Drive.
+`finetune_sentimen`, `evaluasi_sentimen_smsa`, `finetune_aspek`, dan `evaluasi` butuh GPU dan pustaka `torch` serta `transformers` (diuji dengan torch 2.11.0 dan transformers 5.20.2). Jalankan lewat `notebooks/indobert_gpu.ipynb` di Google Colab dengan folder proyek di Google Drive.

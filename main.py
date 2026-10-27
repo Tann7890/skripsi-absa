@@ -12,10 +12,10 @@ from pipeline.anotasi import jalankan_kappa, jalankan_label_akhir, jalankan_lemb
 from pipeline.browser import DiblokirError
 from pipeline.config import CONFIG_PATH, load_config
 from pipeline.data_acuan import jalankan_data_acuan
-from pipeline.data_latih import jalankan_data_latih, jalankan_sampel_latih, jalankan_ulang_50
+from pipeline.data_latih import jalankan_data_latih, jalankan_sampel_latih, jalankan_ulang_50, jalankan_validasi_peneliti
 from pipeline.gabung import jalankan_gabung
 from pipeline.kandidat import jalankan_cari
-from pipeline.model import jalankan_evaluasi_sentimen_smsa, jalankan_finetune_sentimen
+from pipeline.model import jalankan_evaluasi, jalankan_evaluasi_sentimen_smsa, jalankan_finetune_aspek, jalankan_finetune_sentimen
 from pipeline.objek import jalankan_objek
 from pipeline.preprocessing import jalankan_kata_tak_dikenal, jalankan_preprocessing
 from pipeline.ulasan import jalankan_ambil
@@ -42,11 +42,16 @@ def main(argv: list[str] | None = None) -> int:
     kappa.add_argument("--set", dest="set_lembar", choices=["uji_coba", "acuan"], required=True)
     sub.add_parser("label_akhir", help="tetapkan label akhir data acuan dengan suara terbanyak dan hasil diskusi")
     # rujukan FR-xx di help mengikuti PRD
-    sub.add_parser("sampel_latih", help="ambil 1.500 kalimat data latih aspek dan buat lembar peneliti (FR-42, FR-44)")
+    sampel_latih = sub.add_parser("sampel_latih", help="ambil 1.500 kalimat data latih aspek dan buat lembar peneliti (FR-42, FR-44)")
+    sampel_latih.add_argument("--sebelum_kappa", action="store_true", help="mulai sebelum kappa acuan selesai; dicatat di logbook")
     sub.add_parser("ulang_50", help="ekspor ulang 50 kalimat data latih untuk konsistensi diri (FR-46)")
-    sub.add_parser("data_latih", help="susun data_latih_aspek.csv, bagi 80:20 bertingkat, laporan konsistensi dan kecocokan (FR-45-47)")
+    data_latih = sub.add_parser("data_latih", help="susun data_latih_aspek.csv, bagi 80:20 bertingkat, laporan konsistensi dan kecocokan (FR-45-47)")
+    data_latih.add_argument("--sebelum_kappa", action="store_true", help="bagi 80:20 sekarang, laporan konsistensi dan kecocokan menyusul")
+    sub.add_parser("validasi_peneliti", help="bandingkan label aspek peneliti dengan label akhir data acuan (FR-45)")
     sub.add_parser("finetune_sentimen", help="fine-tune IndoBERT sentimen pada SmSA (jalankan di GPU, mis. Colab)")
     sub.add_parser("evaluasi_sentimen_smsa", help="evaluasi model sentimen terkunci pada SmSA data uji (FR-54)")
+    sub.add_parser("finetune_aspek", help="fine-tune IndoBERT aspek pada data_latih_aspek.csv (jalankan di GPU, mis. Colab)")
+    sub.add_parser("evaluasi", help="evaluasi model aspek dan sentimen terkunci pada data acuan (FR-53, FR-55, FR-57)")
     args = parser.parse_args(argv)
     if args.perintah == "uji" and args.n is not None and args.n < 1:
         parser.error("--n minimal 1")
@@ -83,15 +88,21 @@ def main(argv: list[str] | None = None) -> int:
         elif args.perintah == "label_akhir":
             jalankan_label_akhir(cfg)
         elif args.perintah == "sampel_latih":
-            jalankan_sampel_latih(cfg)
+            jalankan_sampel_latih(cfg, sebelum_kappa=args.sebelum_kappa)
         elif args.perintah == "ulang_50":
             jalankan_ulang_50(cfg)
         elif args.perintah == "data_latih":
-            jalankan_data_latih(cfg)
+            jalankan_data_latih(cfg, sebelum_kappa=args.sebelum_kappa)
+        elif args.perintah == "validasi_peneliti":
+            jalankan_validasi_peneliti(cfg)
         elif args.perintah == "finetune_sentimen":
             jalankan_finetune_sentimen(cfg)
         elif args.perintah == "evaluasi_sentimen_smsa":
             jalankan_evaluasi_sentimen_smsa(cfg)
+        elif args.perintah == "finetune_aspek":
+            jalankan_finetune_aspek(cfg)
+        elif args.perintah == "evaluasi":
+            jalankan_evaluasi(cfg)
     # exit 2 supaya blokir bisa dibedakan dari galat biasa
     except DiblokirError as e:
         print(

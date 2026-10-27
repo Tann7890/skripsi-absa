@@ -46,6 +46,8 @@ LEMBAR_LATIH = ANOTASI_DIR / "latih_acak.xlsx"
 LEMBAR_ULANG = ANOTASI_DIR / "latih_ulang_50.xlsx"
 DATA_LATIH_ASPEK = ANOTASI_DIR / "data_latih_aspek.csv"
 LAPORAN_DATA_LATIH = ANOTASI_DIR / "laporan_data_latih.csv"
+LAPORAN_KECOCOKAN = ANOTASI_DIR / "kecocokan_peneliti.csv"
+BEDA_PENELITI = ANOTASI_DIR / "beda_peneliti.csv"
 MODEL_DIR = Path("09_model")
 # dataset SmSA dipakai untuk fine-tune sentimen, bukan data ulasan
 SMSA_DIR = MODEL_DIR / "sumber" / "smsa"
@@ -55,6 +57,8 @@ SMSA_UJI = SMSA_DIR / "test_preprocess.tsv"
 RUNS = MODEL_DIR / "runs.csv"
 KANDIDAT_SENTIMEN_DIR = MODEL_DIR / "kandidat" / "sentimen"
 MODEL_SENTIMEN_TERKUNCI = MODEL_DIR / "sentimen_terkunci"
+KANDIDAT_ASPEK_DIR = MODEL_DIR / "kandidat" / "aspek"
+MODEL_ASPEK_TERKUNCI = MODEL_DIR / "aspek_terkunci"
 EVALUASI_DIR = Path("10_evaluasi")
 EVAL_SMSA_METRIK = EVALUASI_DIR / "sentimen_smsa_uji_metrik.csv"
 EVAL_SMSA_CONFUSION = EVALUASI_DIR / "sentimen_smsa_uji_confusion.csv"
@@ -82,11 +86,13 @@ KOLOM_DISKUSI = ["id_kalimat", "kalimat", "aspek_1", "aspek_2", "aspek_3", "sent
 KOLOM_DATA_ACUAN_FINAL = ["id_kalimat", "label_aspek", "label_sentimen", "sumber_aspek", "sumber_sentimen"]
 KOLOM_DATA_LATIH = ["id_kalimat", "teks_model", "label_aspek", "asal_sampel", "porsi"]
 KOLOM_LAPORAN_LATIH = ["ukuran", "kategori", "nilai"]
+KOLOM_BEDA_PENELITI = ["id_kalimat", "kalimat", "aspek_peneliti", "aspek_konsensus", "catatan_peneliti"]
 UKURAN_ULANG = 50
 PORSI_VALIDASI = 0.2
 KOLOM_RUNS = ["model", "fase", "learning_rate", "batch_size", "epoch", "seed", "f1_macro_validasi", "akurasi_validasi", "durasi_detik", "waktu"]
 KOLOM_METRIK = ["kelas", "precision", "recall", "f1", "support"]
 KOLOM_PREDIKSI_SMSA = ["teks", "teks_model", "label_benar", "label_prediksi", "benar"]
+KOLOM_PREDIKSI_ACUAN = ["id_kalimat", "kalimat", "teks_model", "label_benar", "label_prediksi", "benar"]
 # label SmSA bahasa Inggris dipetakan ke label Indonesia
 LABEL_SMSA = {"positive": "positif", "negative": "negatif", "neutral": "netral"}
 KOLOM_MEREK_TOKO = ["place_id", "nama", "merek", "catatan"]
@@ -107,6 +113,10 @@ def path_lembar_anotasi(jenis: str, nomor: int) -> Path:
 
 def path_laporan_kappa(jenis: str) -> Path:
     return ANOTASI_DIR / f"kappa_{jenis}.csv"
+
+
+def path_evaluasi_acuan(nama_model: str, jenis: str) -> Path:
+    return EVALUASI_DIR / f"{nama_model}_acuan_{jenis}.csv"
 
 
 def path_tidak_sepakat(jenis: str) -> Path:
@@ -154,10 +164,10 @@ def _validasi_ambang_proporsi(config: dict) -> None:
         raise ValueError("config.yaml: 'ambang_proporsi' harus angka 0 < nilai <= 1")
 
 
-def _validasi_ambang_kappa(config: dict) -> None:
-    nilai = config.get("ambang_kappa")
+def _validasi_ambang(config: dict, kunci: str) -> None:
+    nilai = config.get(kunci)
     if not _is_number(nilai) or not 0 < nilai <= 1:
-        raise ValueError("config.yaml: 'ambang_kappa' harus angka 0 < nilai <= 1")
+        raise ValueError(f"config.yaml: '{kunci}' harus angka 0 < nilai <= 1")
 
 
 def _validasi_model(config: dict) -> None:
@@ -244,7 +254,8 @@ def load_config(path: Path = CONFIG_PATH) -> dict:
     _validasi_bilangan_bulat(config, "min_ulasan_id", 0)
     _validasi_bilangan_bulat(config, "ukuran_uji_coba", 1)
     _validasi_bilangan_bulat(config, "jumlah_anotator", 3)
-    _validasi_ambang_kappa(config)
+    _validasi_ambang(config, "ambang_kappa")
+    _validasi_ambang(config, "ambang_f1")
     _validasi_bilangan_bulat(config, "target_data_latih", 1)
     _validasi_model(config)
     _validasi_versi_kata_kunci(config)
